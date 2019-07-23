@@ -29,46 +29,51 @@
   OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#include <inttypes.h>
-#include <stddef.h>
+// Function to return the program counter.
+// Always place this at the end of payload.
+// Tested with x86 and x64 builds of MSVC 2017 and MinGW. YMMV.
+#if defined(_MSC_VER) 
+  #if defined(_M_X64)
 
-// functions to replace intrinsic C library functions
+    #define PC_CODE_SIZE 9 // sub rsp, 40 / call get_pc
 
-// funnily enough, MSVC still tries to replace this
-// with memset hence the use of assembly..
-void *Memset (void *ptr, int value, size_t num) {
-
-    #ifdef _MSC_VER
-    __stosb(ptr, value, num);
-    #else
-    unsigned char *p = (unsigned char*)ptr;
+    static char *get_pc_stub(void) {
+      return (char*)_ReturnAddress() - PC_CODE_SIZE;
+    }
     
-    while(num--) {
-      *p = value;
-      p++;
+    static char *get_pc(void) {
+      return get_pc_stub();
     }
-    #endif
-    return ptr;
-}
 
-void *Memcpy (void *destination, const void *source, size_t num) {
-    unsigned char *out = (unsigned char*)destination;
-    unsigned char *in  = (unsigned char*)source;
-    
-    while(num--) {
-      *out = *in;
-      out++; in++;
+  #elif defined(_M_IX86)
+    __declspec(naked) static char *get_pc(void) {
+      __asm {
+          call   pc_addr
+        pc_addr:
+          pop    eax
+          sub    eax, 5
+          ret
+      }
     }
-    return destination;
-}
-
-int Memcmp(const void *ptr1, const void *ptr2, size_t num) {
-    register const unsigned char *s1 = (const unsigned char*)ptr1;
-    register const unsigned char *s2 = (const unsigned char*)ptr2;
-
-    while (num-- > 0) {
-      if (*s1++ != *s2++)
-        return s1[-1] < s2[-1] ? -1 : 1;
+  #endif  
+#elif defined(__GNUC__) 
+  #if defined(__x86_64__)
+    static char *get_pc(void) {
+        __asm__ (
+        "call   pc_addr\n"
+      "pc_addr:\n"
+        "pop    %rax\n"
+        "sub    $5, %rax\n"
+        "ret");
     }
-    return 0;
-}
+  #elif defined(__i386__)
+    static char *get_pc(void) {
+        __asm__ (
+        "call   pc_addr\n"
+      "pc_addr:\n"
+        "popl   %eax\n"
+        "subl   $5, %eax\n"
+        "ret");
+    }
+  #endif
+#endif
